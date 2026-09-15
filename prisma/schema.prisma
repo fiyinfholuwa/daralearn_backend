@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  TUTOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+enum WalletTransactionType {
+  FUNDING
+  BOOKING_PAYMENT
+  REFUND
+  TUTOR_EARNING
+  PAYOUT
+  PAYOUT_REVERSAL
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum PayoutStatus {
+  REQUESTED
+  PROCESSING
+  PAID
+  REJECTED
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  email              String              @unique
+  passwordHash       String
+  firstName          String
+  lastName           String
+  role               UserRole
+  status             UserStatus          @default(ACTIVE)
+  emailVerifiedAt    DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  studentProfile     StudentProfile?
+  tutorProfile       TutorProfile?
+  otpCodes           OtpCode[]
+  passwordTokens     PasswordResetToken[]
+  bookingsAsStudent  Booking[]           @relation("StudentBookings")
+  bookingsAsTutor    Booking[]           @relation("TutorBookings")
+  wallet             Wallet?
+  payouts            Payout[]
+  auditEvents        AuditEvent[]
+}
+
+model OtpCode {
+  id         String    @id @default(cuid())
+  userId     String
+  codeHash   String
+  purpose    String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model StudentProfile {
+  id         String       @id @default(cuid())
+  userId     String       @unique
+  bio        String?
+  interests  StudentInterest[]
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subject {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  slug        String         @unique
+  description String?
+  interests   StudentInterest[]
+  tutorSkills TutorSkill[]
+  bookings    Booking[]
+}
+
+model StudentInterest {
+  studentId String
+  subjectId String
+  level     String?
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, subjectId])
+}
+
+model TutorProfile {
+  id             String     @id @default(cuid())
+  userId         String     @unique
+  bio            String?
+  monthlyRate    Decimal    @db.Decimal(12, 2)
+  currency       String     @default("NGN")
+  kycStatus      KycStatus  @default(NOT_STARTED)
+  certificateUrl String?
+  kycNote        String?
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills         TutorSkill[]
+}
+
+model TutorSkill {
+  tutorId   String
+  subjectId String
+  tutor     TutorProfile @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  subject   Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([tutorId, subjectId])
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  studentId      String
+  tutorId        String
+  subjectId      String
+  startsAt       DateTime
+  endsAt         DateTime
+  amount         Decimal       @db.Decimal(12, 2)
+  currency       String        @default("NGN")
+  status         BookingStatus @default(PENDING)
+  notes          String?
+  createdAt      DateTime      @default(now())
+  student        User          @relation("StudentBookings", fields: [studentId], references: [id])
+  tutor          User          @relation("TutorBookings", fields: [tutorId], references: [id])
+  subject        Subject       @relation(fields: [subjectId], references: [id])
+  subscription   Subscription?
+
+  @@index([studentId, status])
+  @@index([tutorId, startsAt])
+}
+
+model Subscription {
+  id         String             @id @default(cuid())
+  bookingId  String             @unique
+  studentId  String
+  tutorId    String
+  amount     Decimal            @db.Decimal(12, 2)
+  currency   String             @default("NGN")
+  status     SubscriptionStatus @default(ACTIVE)
+  startsAt   DateTime
+  renewsAt   DateTime?
+  booking    Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  balance      Decimal             @default(0) @db.Decimal(12, 2)
+  currency     String              @default("NGN")
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id          String                   @id @default(cuid())
+  walletId    String
+  type        WalletTransactionType
+  status      WalletTransactionStatus  @default(PENDING)
+  amount      Decimal                  @db.Decimal(12, 2)
+  reference   String                   @unique
+  description String?
+  metadata    Json?
+  createdAt   DateTime                 @default(now())
+  wallet      Wallet                   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, createdAt])
+}
+
+model Payout {
+  id          String       @id @default(cuid())
+  tutorId     String
+  amount      Decimal      @db.Decimal(12, 2)
+  status      PayoutStatus @default(REQUESTED)
+  note        String?
+  processedAt DateTime?
+  createdAt   DateTime     @default(now())
+  tutor       User         @relation(fields: [tutorId], references: [id])
+
+  @@index([tutorId, status])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+}
