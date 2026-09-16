@@ -24,9 +24,6 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const user = await this.jwt.verifyAsync<JwtUser>(token);
-      if (!user.emailVerified) {
-        throw new UnauthorizedException('Verify your email before continuing');
-      }
       request.user = user;
       return true;
     } catch (error) {

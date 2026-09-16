@@ -17,6 +17,7 @@ import {
   RegisterDto,
   ResetPasswordDto,
   VerifyOtpDto,
+  UpdateProfileDto,
 } from './auth.dto.js';
 
 @Injectable()
@@ -66,7 +67,6 @@ export class AuthService {
     }
     if (user.status === 'SUSPENDED')
       throw new UnauthorizedException('Account suspended');
-    if (!user.emailVerifiedAt) await this.issueOtp(user.id, user.email);
     return {
       accessToken: await this.token(user),
       requiresEmailVerification: !user.emailVerifiedAt,
@@ -112,7 +112,7 @@ export class AuthService {
       where: { email: email.toLowerCase() },
     });
     if (user && !user.emailVerifiedAt) await this.issueOtp(user.id, user.email);
-    return { message: 'If the account exists, a new code has been sent' };
+    return { message: 'A new verification code has been sent' };
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -172,6 +172,26 @@ export class AuthService {
       select: { id: true, email: true, firstName: true, lastName: true, role: true, status: true, emailVerifiedAt: true },
     });
     if (!user) throw new NotFoundException('Account not found');
+    return { ...user, emailVerified: Boolean(user.emailVerifiedAt) };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName.trim(),
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        emailVerifiedAt: true,
+      },
+    });
     return { ...user, emailVerified: Boolean(user.emailVerifiedAt) };
   }
 

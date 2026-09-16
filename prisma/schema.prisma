@@ -61,6 +61,12 @@ enum PayoutStatus {
   REJECTED
 }
 
+enum AssignmentType {
+  OBJECTIVE
+  ESSAY
+  UPLOAD
+}
+
 model User {
   id                 String              @id @default(cuid())
   email              String              @unique
@@ -81,6 +87,8 @@ model User {
   wallet             Wallet?
   payouts            Payout[]
   auditEvents        AuditEvent[]
+  studentAssignments Assignment[]       @relation("StudentAssignments")
+  tutorAssignments   Assignment[]       @relation("TutorAssignments")
 }
 
 model OtpCode {
@@ -227,6 +235,40 @@ model Payout {
   tutor       User         @relation(fields: [tutorId], references: [id])
 
   @@index([tutorId, status])
+}
+
+model Assignment {
+  id           String             @id @default(cuid())
+  tutorId      String
+  studentId    String
+  title        String
+  instructions String
+  type         AssignmentType
+  options      Json?
+  points       Int                @default(100)
+  dueAt        DateTime?
+  durationMinutes Int?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  tutor        User               @relation("TutorAssignments", fields: [tutorId], references: [id], onDelete: Cascade)
+  student      User               @relation("StudentAssignments", fields: [studentId], references: [id], onDelete: Cascade)
+  submission   AssignmentSubmission?
+
+  @@index([studentId, createdAt])
+  @@index([tutorId, createdAt])
+}
+
+model AssignmentSubmission {
+  id           String     @id @default(cuid())
+  assignmentId String     @unique
+  answer       String?
+  fileName     String?
+  fileData     String?
+  score        Int?
+  feedback     String?
+  submittedAt  DateTime   @default(now())
+  gradedAt     DateTime?
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 }
 
 model AuditEvent {

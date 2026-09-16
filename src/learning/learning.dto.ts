@@ -1,6 +1,8 @@
 import {
   IsArray,
   IsDateString,
+  IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -50,4 +52,63 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class CreateAssignmentDto {
+  @IsString()
+  studentId!: string;
+
+  @IsString()
+  title!: string;
+
+  @IsString()
+  instructions!: string;
+
+  @IsIn(['OBJECTIVE', 'ESSAY', 'UPLOAD'])
+  type!: 'OBJECTIVE' | 'ESSAY' | 'UPLOAD';
+
+  @IsOptional()
+  @IsArray()
+  options?: string[];
+
+  @IsOptional()
+  @IsString()
+  correctAnswer?: string;
+
+  @IsInt()
+  @Min(1)
+  points!: number;
+
+  @IsOptional()
+  @IsDateString()
+  dueAt?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  durationMinutes?: number;
+}
+
+export class SubmitAssignmentDto {
+  @IsOptional()
+  @IsString()
+  answer?: string;
+
+  @IsOptional()
+  @IsString()
+  fileName?: string;
+
+  @IsOptional()
+  @IsString()
+  fileData?: string;
+}
+
+export class GradeAssignmentDto {
+  @IsInt()
+  @Min(0)
+  score!: number;
+
+  @IsOptional()
+  @IsString()
+  feedback?: string;
 }

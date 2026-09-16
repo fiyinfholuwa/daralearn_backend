@@ -10,7 +10,7 @@
     "build": "nest build",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name init",
-    "db:seed": "prisma db execute --file prisma/seed.sql",
+    "db:seed": "prisma db execute --schema prisma/schema.prisma --file prisma/seed.sql",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

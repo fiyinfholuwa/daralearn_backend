@@ -65,6 +65,16 @@ export class ChangePasswordDto {
   newPassword!: string;
 }
 
+export class UpdateProfileDto {
+  @IsString()
+  @MinLength(2)
+  firstName!: string;
+
+  @IsString()
+  @MinLength(2)
+  lastName!: string;
+}
+
 export class ResendOtpDto {
   @IsEmail()
   email!: string;

@@ -14,8 +14,11 @@ import { JwtAuthGuard, RolesGuard } from '../auth/auth.guards.js';
 import type { AuthenticatedRequest } from '../auth/auth.guards.js';
 import {
   CreateBookingDto,
+  CreateAssignmentDto,
+  GradeAssignmentDto,
   InterestsDto,
   KycDto,
+  SubmitAssignmentDto,
   TutorProfileDto,
 } from './learning.dto.js';
 import { LearningService } from './learning.service.js';
@@ -27,6 +30,12 @@ export class LearningController {
 
   @Get('subjects') subjects() {
     return this.learning.subjects();
+  }
+
+  @Roles(UserRole.STUDENT)
+  @Get('students/me/interests')
+  interests(@Req() req: AuthenticatedRequest) {
+    return this.learning.studentInterests(req.user.sub);
   }
 
   @Roles(UserRole.STUDENT)
@@ -76,6 +85,36 @@ export class LearningController {
   @Get('students/me/bookings')
   studentBookings(@Req() req: AuthenticatedRequest) {
     return this.learning.studentBookings(req.user.sub);
+  }
+
+  @Roles(UserRole.TUTOR)
+  @Post('tutors/me/assignments')
+  createAssignment(@Req() req: AuthenticatedRequest, @Body() dto: CreateAssignmentDto) {
+    return this.learning.createAssignment(req.user.sub, dto);
+  }
+
+  @Roles(UserRole.TUTOR)
+  @Get('tutors/me/assignments')
+  tutorAssignments(@Req() req: AuthenticatedRequest) {
+    return this.learning.tutorAssignments(req.user.sub);
+  }
+
+  @Roles(UserRole.STUDENT)
+  @Get('students/me/assignments')
+  studentAssignments(@Req() req: AuthenticatedRequest) {
+    return this.learning.studentAssignments(req.user.sub);
+  }
+
+  @Roles(UserRole.STUDENT)
+  @Post('assignments/:id/submissions')
+  submitAssignment(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() dto: SubmitAssignmentDto) {
+    return this.learning.submitAssignment(req.user.sub, id, dto);
+  }
+
+  @Roles(UserRole.TUTOR)
+  @Patch('assignments/:id/grade')
+  gradeAssignment(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() dto: GradeAssignmentDto) {
+    return this.learning.gradeAssignment(req.user.sub, id, dto);
   }
 
   @Roles(UserRole.STUDENT)

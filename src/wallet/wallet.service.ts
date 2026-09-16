@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../database/prisma.service.js';
@@ -14,6 +15,7 @@ export class WalletService {
   async initializeFunding(userId: string, dto: FundWalletDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
+    if (!user.emailVerifiedAt) throw new UnauthorizedException('Verify your email before making payments');
     const reference = `DL-${userId.slice(0, 8)}-${Date.now()}`;
     const transaction = await this.prisma.walletTransaction.create({
       data: {
@@ -58,6 +60,8 @@ export class WalletService {
     });
     if (!transaction || transaction.wallet.userId !== userId)
       throw new NotFoundException('Payment not found');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
+    if (!user?.emailVerifiedAt) throw new UnauthorizedException('Verify your email before making payments');
     if (transaction.status === 'SUCCESS') return transaction;
     if (!process.env.PAYSTACK_SECRET_KEY)
       throw new BadRequestException('Paystack is not configured');
@@ -76,17 +80,23 @@ export class WalletService {
         where: { id: transaction.id },
         data: { status: 'FAILED' },
       });
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.walletTransaction.update({
-        where: { id: transaction.id },
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.walletTransaction.updateMany({
+        where: { id: transaction.id, status: 'PENDING' },
         data: { status: 'SUCCESS' },
-      }),
-      this.prisma.wallet.update({
+      });
+
+      if (claimed.count === 0) {
+        return tx.walletTransaction.findUnique({ where: { id: transaction.id } });
+      }
+
+      await tx.wallet.update({
         where: { id: transaction.walletId },
         data: { balance: { increment: transaction.amount } },
-      }),
-    ]);
-    return updated;
+      });
+
+      return tx.walletTransaction.findUnique({ where: { id: transaction.id } });
+    });
   }
 
   async walletForUser(userId: string) {
@@ -94,6 +104,8 @@ export class WalletService {
   }
 
   async requestPayout(userId: string, dto: PayoutDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
+    if (!user?.emailVerifiedAt) throw new UnauthorizedException('Verify your email before requesting a payout');
     const wallet = await this.wallet(userId, true);
     if (Number(wallet.balance) < dto.amount)
       throw new BadRequestException('Insufficient available balance');

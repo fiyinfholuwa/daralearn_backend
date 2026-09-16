@@ -9,6 +9,9 @@ import {
   KycDto,
   TutorProfileDto,
   CreateBookingDto,
+  CreateAssignmentDto,
+  GradeAssignmentDto,
+  SubmitAssignmentDto,
 } from './learning.dto.js';
 
 @Injectable()
@@ -17,6 +20,15 @@ export class LearningService {
 
   subjects() {
     return this.prisma.subject.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  async studentInterests(userId: string) {
+    const student = await this.prisma.studentProfile.findUnique({
+      where: { userId },
+      include: { interests: { include: { subject: true } } },
+    });
+    if (!student) throw new NotFoundException('Student profile not found');
+    return { interests: student.interests };
   }
 
   async saveInterests(userId: string, dto: InterestsDto) {
@@ -63,7 +75,7 @@ export class LearningService {
     return this.prisma.tutorProfile.findUnique({
       where: { id },
       include: {
-        user: { select: { firstName: true, lastName: true, email: true } },
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
         skills: { include: { subject: true } },
       },
     });
@@ -194,10 +206,69 @@ export class LearningService {
     return this.prisma.booking.findMany({
       where: { tutorId: userId },
       include: {
-        student: { select: { firstName: true, lastName: true, email: true } },
+        student: { select: { id: true, firstName: true, lastName: true, email: true } },
         subject: true,
       },
       orderBy: { startsAt: 'asc' },
+    });
+  }
+
+  async createAssignment(userId: string, dto: CreateAssignmentDto) {
+    const relationship = await this.prisma.booking.findFirst({
+      where: { tutorId: userId, studentId: dto.studentId },
+    });
+    if (!relationship) throw new BadRequestException('You can only assign work to your students');
+    return this.prisma.assignment.create({
+      data: {
+        tutorId: userId,
+        studentId: dto.studentId,
+        title: dto.title.trim(),
+        instructions: dto.instructions.trim(),
+        type: dto.type,
+        options: dto.options?.length ? { choices: dto.options, correctAnswer: dto.correctAnswer } : undefined,
+        points: dto.points,
+        dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
+        durationMinutes: dto.durationMinutes,
+      },
+      include: { student: { select: { firstName: true, lastName: true, email: true } }, submission: true },
+    });
+  }
+
+  tutorAssignments(userId: string) {
+    return this.prisma.assignment.findMany({
+      where: { tutorId: userId },
+      include: { student: { select: { id: true, firstName: true, lastName: true, email: true } }, submission: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  studentAssignments(userId: string) {
+    return this.prisma.assignment.findMany({
+      where: { studentId: userId },
+      include: { tutor: { select: { firstName: true, lastName: true } }, submission: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async submitAssignment(userId: string, assignmentId: string, dto: SubmitAssignmentDto) {
+    const assignment = await this.prisma.assignment.findUnique({ where: { id: assignmentId } });
+    if (!assignment || assignment.studentId !== userId) throw new NotFoundException('Assignment not found');
+    if (assignment.dueAt && assignment.dueAt <= new Date()) throw new BadRequestException('This assignment deadline has passed');
+    if (!dto.answer && !dto.fileData) throw new BadRequestException('Add an answer or upload a file');
+    return this.prisma.assignmentSubmission.upsert({
+      where: { assignmentId },
+      create: { assignmentId, answer: dto.answer, fileName: dto.fileName, fileData: dto.fileData },
+      update: { answer: dto.answer, fileName: dto.fileName, fileData: dto.fileData, score: null, feedback: null, gradedAt: null, submittedAt: new Date() },
+    });
+  }
+
+  async gradeAssignment(userId: string, assignmentId: string, dto: GradeAssignmentDto) {
+    const assignment = await this.prisma.assignment.findUnique({ where: { id: assignmentId } });
+    if (!assignment || assignment.tutorId !== userId) throw new NotFoundException('Assignment not found');
+    if (dto.score > assignment.points) throw new BadRequestException(`Score cannot exceed ${assignment.points}`);
+    return this.prisma.assignmentSubmission.update({
+      where: { assignmentId },
+      data: { score: dto.score, feedback: dto.feedback, gradedAt: new Date() },
     });
   }
 }

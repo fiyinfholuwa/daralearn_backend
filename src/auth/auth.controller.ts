@@ -9,6 +9,7 @@ import {
   RegisterDto,
   ResetPasswordDto,
   ResendOtpDto,
+  UpdateProfileDto,
   VerifyOtpDto,
 } from './auth.dto.js';
 
@@ -38,6 +39,14 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('me') me(@Req() req: AuthenticatedRequest) {
     return this.auth.me(req.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/profile') updateProfile(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.auth.updateProfile(req.user.sub, dto);
   }
 
   @UseGuards(JwtAuthGuard)
