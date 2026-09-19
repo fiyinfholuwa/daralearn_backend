@@ -10,6 +10,7 @@ import {
   TutorProfileDto,
   CreateBookingDto,
   CreateAssignmentDto,
+  CreateClassScheduleDto,
   GradeAssignmentDto,
   SubmitAssignmentDto,
 } from './learning.dto.js';
@@ -81,6 +82,13 @@ export class LearningService {
     });
   }
 
+  tutorProfile(userId: string) {
+    return this.prisma.tutorProfile.findUnique({
+      where: { userId },
+      include: { skills: { select: { subjectId: true } } },
+    });
+  }
+
   async updateTutor(userId: string, dto: TutorProfileDto) {
     const profile = await this.prisma.tutorProfile.findUnique({
       where: { userId },
@@ -89,7 +97,7 @@ export class LearningService {
     await this.prisma.$transaction([
       this.prisma.tutorProfile.update({
         where: { id: profile.id },
-        data: { bio: dto.bio, monthlyRate: dto.monthlyRate },
+        data: { bio: dto.bio, monthlyRate: dto.monthlyRate, websiteUrl: dto.websiteUrl || null },
       }),
       this.prisma.tutorSkill.deleteMany({ where: { tutorId: profile.id } }),
       this.prisma.tutorSkill.createMany({
@@ -123,6 +131,23 @@ export class LearningService {
     });
     if (!tutor || tutor.kycStatus !== 'APPROVED')
       throw new BadRequestException('Tutor is not available');
+
+    const existingSubscription = await this.prisma.subscription.findFirst({
+      where: { studentId: userId, tutorId: dto.tutorId, status: 'ACTIVE' },
+    });
+    if (existingSubscription)
+      throw new BadRequestException('You already have an active subscription with this tutor');
+
+    const existingBooking = await this.prisma.booking.findFirst({
+      where: {
+        studentId: userId,
+        tutorId: dto.tutorId,
+        status: 'PENDING',
+      },
+    });
+    if (existingBooking)
+      throw new BadRequestException('You already have a pending booking with this tutor');
+
     const skill = await this.prisma.tutorSkill.findUnique({
       where: {
         tutorId_subjectId: { tutorId: tutor.id, subjectId: dto.subjectId },
@@ -182,7 +207,24 @@ export class LearningService {
   async tutorEarnings(userId: string) {
     const wallet = await this.prisma.wallet.upsert({ where: { userId }, create: { userId }, update: {} });
     const transactions = await this.prisma.walletTransaction.findMany({ where: { walletId: wallet.id, type: 'TUTOR_EARNING' }, orderBy: { createdAt: 'desc' }, take: 100 });
-    return { balance: wallet.balance, currency: wallet.currency, transactions };
+    const balanceTransactions = await this.prisma.walletTransaction.findMany({
+      where: {
+        walletId: wallet.id,
+        status: 'SUCCESS',
+        type: { in: ['TUTOR_EARNING', 'PAYOUT', 'PAYOUT_REVERSAL'] },
+      },
+      select: { type: true, amount: true },
+    });
+    const ledgerBalance = balanceTransactions.reduce(
+      (total, transaction) => total + (transaction.type === 'PAYOUT' ? -Number(transaction.amount) : Number(transaction.amount)),
+      0,
+    );
+    const pendingPayouts = await this.prisma.payout.aggregate({
+      where: { tutorId: userId, status: { in: ['REQUESTED', 'PROCESSING'] } },
+      _sum: { amount: true },
+    });
+    const balance = ledgerBalance - Number(pendingPayouts._sum.amount ?? 0);
+    return { balance, currency: wallet.currency, transactions };
   }
 
   async updateBookingStatus(userId: string, bookingId: string, status: 'CONFIRMED' | 'COMPLETED' | 'CANCELLED') {
@@ -213,9 +255,56 @@ export class LearningService {
     });
   }
 
+  async createClassSchedule(userId: string, dto: CreateClassScheduleDto) {
+    const startsAt = new Date(dto.startsAt);
+    const endsAt = new Date(dto.endsAt);
+    if (endsAt <= startsAt) throw new BadRequestException('Class end time must be after the start time');
+
+    const subjectSkill = await this.prisma.tutorSkill.findUnique({
+      where: { tutorId_subjectId: { tutorId: (await this.prisma.tutorProfile.findUniqueOrThrow({ where: { userId } })).id, subjectId: dto.subjectId } },
+    });
+    if (!subjectSkill) throw new BadRequestException('You can only schedule classes for subjects on your profile');
+
+    const confirmedStudent = await this.prisma.booking.findFirst({
+      where: { tutorId: userId, subjectId: dto.subjectId, status: 'CONFIRMED' },
+    });
+    if (!confirmedStudent) throw new BadRequestException('You need a confirmed student booking for this subject before scheduling a class');
+
+    return this.prisma.classSchedule.create({
+      data: { tutorId: userId, subjectId: dto.subjectId, startsAt, endsAt, meetingLink: dto.meetingLink },
+      include: { subject: true },
+    });
+  }
+
+  tutorSchedules(userId: string) {
+    return this.prisma.classSchedule.findMany({
+      where: { tutorId: userId },
+      include: { subject: true },
+      orderBy: { startsAt: 'asc' },
+    });
+  }
+
+  async studentSchedules(userId: string) {
+    const confirmedBookings = await this.prisma.booking.findMany({
+      where: { studentId: userId, status: 'CONFIRMED' },
+      select: { tutorId: true, subjectId: true },
+    });
+    const pairs = confirmedBookings.map(({ tutorId, subjectId }) => ({ tutorId, subjectId }));
+    if (!pairs.length) return [];
+
+    return this.prisma.classSchedule.findMany({
+      where: { OR: pairs },
+      include: {
+        subject: true,
+        tutor: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { startsAt: 'asc' },
+    });
+  }
+
   async createAssignment(userId: string, dto: CreateAssignmentDto) {
     const relationship = await this.prisma.booking.findFirst({
-      where: { tutorId: userId, studentId: dto.studentId },
+      where: { tutorId: userId, studentId: dto.studentId, status: 'CONFIRMED' },
     });
     if (!relationship) throw new BadRequestException('You can only assign work to your students');
     return this.prisma.assignment.create({
@@ -225,7 +314,7 @@ export class LearningService {
         title: dto.title.trim(),
         instructions: dto.instructions.trim(),
         type: dto.type,
-        options: dto.options?.length ? { choices: dto.options, correctAnswer: dto.correctAnswer } : undefined,
+        options: dto.options ? (Array.isArray(dto.options) ? { choices: dto.options, correctAnswer: dto.correctAnswer } : dto.options) : undefined,
         points: dto.points,
         dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
         durationMinutes: dto.durationMinutes,
@@ -242,11 +331,27 @@ export class LearningService {
     });
   }
 
-  studentAssignments(userId: string) {
-    return this.prisma.assignment.findMany({
+  async studentAssignments(userId: string) {
+    const assignments = await this.prisma.assignment.findMany({
       where: { studentId: userId },
       include: { tutor: { select: { firstName: true, lastName: true } }, submission: true },
       orderBy: { createdAt: 'desc' },
+    });
+
+    // Students need the questions and choices, but never the answer key.
+    return assignments.map(({ options, ...assignment }) => {
+      if (options && typeof options === 'object' && !Array.isArray(options) && 'questions' in options) {
+        const quizOptions = options as { questions?: { question: string; choices: string[]; correctAnswer?: string }[] };
+        return {
+          ...assignment,
+          options: {
+            ...options,
+            questions: quizOptions.questions?.map(({ correctAnswer: _correctAnswer, ...question }) => question),
+          },
+        };
+      }
+
+      return { ...assignment, options };
     });
   }
 
@@ -255,10 +360,36 @@ export class LearningService {
     if (!assignment || assignment.studentId !== userId) throw new NotFoundException('Assignment not found');
     if (assignment.dueAt && assignment.dueAt <= new Date()) throw new BadRequestException('This assignment deadline has passed');
     if (!dto.answer && !dto.fileData) throw new BadRequestException('Add an answer or upload a file');
+    let answer = dto.answer;
+    let score: number | undefined;
+    let gradedAt: Date | undefined;
+    if (assignment.type === 'OBJECTIVE' && assignment.options && typeof assignment.options === 'object' && !Array.isArray(assignment.options)) {
+      const quiz = assignment.options as {
+        choices?: string[];
+        correctAnswer?: string;
+        questions?: { question: string; choices: string[]; correctAnswer?: string }[];
+      };
+      if (quiz.questions?.length) {
+        let selected: Record<string, string>;
+        try {
+          selected = JSON.parse(dto.answer ?? '{}') as Record<string, string>;
+        } catch {
+          throw new BadRequestException('Please answer the quiz questions before submitting');
+        }
+        const correct = quiz.questions.filter((question, index) => selected[index] === question.correctAnswer).length;
+        score = Math.round((correct / quiz.questions.length) * assignment.points);
+        gradedAt = new Date();
+        answer = quiz.questions.map((question, index) => `${index + 1}. ${selected[index] ?? 'No answer'}`).join('\n');
+      } else if (quiz.correctAnswer) {
+        score = dto.answer === quiz.correctAnswer ? assignment.points : 0;
+        gradedAt = new Date();
+        answer = dto.answer;
+      }
+    }
     return this.prisma.assignmentSubmission.upsert({
       where: { assignmentId },
-      create: { assignmentId, answer: dto.answer, fileName: dto.fileName, fileData: dto.fileData },
-      update: { answer: dto.answer, fileName: dto.fileName, fileData: dto.fileData, score: null, feedback: null, gradedAt: null, submittedAt: new Date() },
+      create: { assignmentId, answer, fileName: dto.fileName, fileData: dto.fileData, score, feedback: score === undefined ? undefined : 'Automatically graded quiz', gradedAt },
+      update: { answer, fileName: dto.fileName, fileData: dto.fileData, score: score ?? null, feedback: score === undefined ? null : 'Automatically graded quiz', gradedAt: gradedAt ?? null, submittedAt: new Date() },
     });
   }
 

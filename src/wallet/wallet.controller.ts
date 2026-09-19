@@ -12,7 +12,7 @@ import { UserRole } from '@prisma/client';
 import { Roles } from '../auth/auth.decorators.js';
 import { JwtAuthGuard, RolesGuard } from '../auth/auth.guards.js';
 import type { AuthenticatedRequest } from '../auth/auth.guards.js';
-import { FundWalletDto, PayoutDto, VerifyPaymentDto } from './wallet.dto.js';
+import { BankAccountDto, FundWalletDto, PayoutDto, ResolveBankAccountDto, VerifyPaymentDto } from './wallet.dto.js';
 import { WalletService } from './wallet.service.js';
 
 @Controller('wallet')
@@ -47,6 +47,36 @@ export class WalletController {
   @Roles(UserRole.TUTOR)
   requestPayout(@Req() req: AuthenticatedRequest, @Body() dto: PayoutDto) {
     return this.wallet.requestPayout(req.user.sub, dto);
+  }
+
+  @Get('bank-account')
+  @Roles(UserRole.TUTOR)
+  tutorBankAccount(@Req() req: AuthenticatedRequest) {
+    return this.wallet.bankAccount(req.user.sub);
+  }
+
+  @Get('banks')
+  @Roles(UserRole.TUTOR)
+  banks() {
+    return this.wallet.banks();
+  }
+
+  @Post('bank-account/resolve')
+  @Roles(UserRole.TUTOR)
+  resolveBankAccount(@Body() dto: ResolveBankAccountDto) {
+    return this.wallet.resolveBankAccount(dto);
+  }
+
+  @Patch('bank-account')
+  @Roles(UserRole.TUTOR)
+  updateBankAccount(@Req() req: AuthenticatedRequest, @Body() dto: BankAccountDto) {
+    return this.wallet.updateBankAccount(req.user.sub, dto);
+  }
+
+  @Get('payouts/me')
+  @Roles(UserRole.TUTOR)
+  tutorPayouts(@Req() req: AuthenticatedRequest) {
+    return this.wallet.tutorPayouts(req.user.sub);
   }
 
   @Get('admin/payouts')

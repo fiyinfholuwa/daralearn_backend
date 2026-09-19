@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Min,
 } from 'class-validator';
 
@@ -25,6 +26,10 @@ export class TutorProfileDto {
 
   @IsArray()
   subjectIds!: string[];
+
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'] })
+  websiteUrl?: string;
 }
 
 export class KycDto {
@@ -54,6 +59,20 @@ export class CreateBookingDto {
   notes?: string;
 }
 
+export class CreateClassScheduleDto {
+  @IsString()
+  subjectId!: string;
+
+  @IsDateString()
+  startsAt!: string;
+
+  @IsDateString()
+  endsAt!: string;
+
+  @IsUrl({ protocols: ['http', 'https'] })
+  meetingLink!: string;
+}
+
 export class CreateAssignmentDto {
   @IsString()
   studentId!: string;
@@ -68,8 +87,7 @@ export class CreateAssignmentDto {
   type!: 'OBJECTIVE' | 'ESSAY' | 'UPLOAD';
 
   @IsOptional()
-  @IsArray()
-  options?: string[];
+  options?: unknown;
 
   @IsOptional()
   @IsString()

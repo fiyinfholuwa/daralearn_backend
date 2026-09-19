@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../database/prisma.service.js';
-import { FundWalletDto, PayoutDto, VerifyPaymentDto } from './wallet.dto.js';
+import { BankAccountDto, FundWalletDto, PayoutDto, ResolveBankAccountDto, VerifyPaymentDto } from './wallet.dto.js';
 
 @Injectable()
 export class WalletService {
@@ -103,21 +103,88 @@ export class WalletService {
     return this.wallet(userId, true);
   }
 
+  bankAccount(userId: string) {
+    return this.prisma.bankAccount.findUnique({ where: { userId } });
+  }
+
+  async banks() {
+    if (!process.env.PAYSTACK_SECRET_KEY) throw new BadRequestException('Paystack is not configured');
+    try {
+      const response = await axios.get('https://api.paystack.co/bank', {
+        params: { country: 'nigeria', currency: 'NGN', perPage: 100 },
+        headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+      });
+      return response.data.data.map((bank: { name: string; code: string }) => ({ name: bank.name, code: bank.code }));
+    } catch (error) {
+      const message = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      throw new BadRequestException(message ?? 'Unable to load banks from Paystack');
+    }
+  }
+
+  async resolveBankAccount(dto: ResolveBankAccountDto) {
+    if (!process.env.PAYSTACK_SECRET_KEY) throw new BadRequestException('Paystack is not configured');
+    try {
+      const response = await axios.get('https://api.paystack.co/bank/resolve', {
+        params: { account_number: dto.accountNumber.trim(), bank_code: dto.bankCode.trim() },
+        headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+      });
+      const accountName = response.data?.data?.account_name?.trim();
+      if (!response.data?.status || !accountName) {
+        throw new BadRequestException(response.data?.message ?? 'Paystack could not verify this bank account');
+      }
+      return { accountName };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      const message = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      throw new BadRequestException(message ?? 'Paystack could not verify this bank account');
+    }
+  }
+
+  async updateBankAccount(userId: string, dto: BankAccountDto) {
+    const accountNumber = dto.accountNumber.trim();
+    const resolved = await this.resolveBankAccount({ bankCode: dto.bankCode, accountNumber });
+    return this.prisma.bankAccount.upsert({
+        where: { userId },
+        create: { userId, bankName: dto.bankName.trim(), bankCode: dto.bankCode.trim(), accountName: resolved.accountName, accountNumber },
+        update: { bankName: dto.bankName.trim(), bankCode: dto.bankCode.trim(), accountName: resolved.accountName, accountNumber },
+      });
+  }
+
   async requestPayout(userId: string, dto: PayoutDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
     if (!user?.emailVerifiedAt) throw new UnauthorizedException('Verify your email before requesting a payout');
     const wallet = await this.wallet(userId, true);
-    if (Number(wallet.balance) < dto.amount)
+    const successfulTransactions = await this.prisma.walletTransaction.findMany({
+      where: { walletId: wallet.id, status: 'SUCCESS' },
+      select: { type: true, amount: true },
+    });
+    const ledgerBalance = successfulTransactions.reduce((total, transaction) => {
+      const amount = Number(transaction.amount);
+      return total + (transaction.type === 'PAYOUT' ? -amount : transaction.type === 'PAYOUT_REVERSAL' ? amount : transaction.type === 'TUTOR_EARNING' ? amount : 0);
+    }, 0);
+    const pendingPayouts = await this.prisma.payout.aggregate({
+      where: { tutorId: userId, status: { in: ['REQUESTED', 'PROCESSING'] } },
+      _sum: { amount: true },
+    });
+    const availableBalance = ledgerBalance - Number(pendingPayouts._sum.amount ?? 0);
+    if (availableBalance < dto.amount)
       throw new BadRequestException('Insufficient available balance');
     return this.prisma.payout.create({
       data: { tutorId: userId, amount: dto.amount },
     });
   }
 
+  tutorPayouts(userId: string) {
+    return this.prisma.payout.findMany({
+      where: { tutorId: userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   payouts() {
     return this.prisma.payout.findMany({
       include: {
-        tutor: { select: { firstName: true, lastName: true, email: true } },
+        tutor: { select: { firstName: true, lastName: true, email: true, bankAccount: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

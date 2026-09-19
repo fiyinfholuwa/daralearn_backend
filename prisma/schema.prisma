@@ -85,10 +85,12 @@ model User {
   bookingsAsStudent  Booking[]           @relation("StudentBookings")
   bookingsAsTutor    Booking[]           @relation("TutorBookings")
   wallet             Wallet?
+  bankAccount        BankAccount?
   payouts            Payout[]
   auditEvents        AuditEvent[]
   studentAssignments Assignment[]       @relation("StudentAssignments")
   tutorAssignments   Assignment[]       @relation("TutorAssignments")
+  classSchedules     ClassSchedule[]    @relation("TutorClassSchedules")
 }
 
 model OtpCode {
@@ -132,6 +134,7 @@ model Subject {
   interests   StudentInterest[]
   tutorSkills TutorSkill[]
   bookings    Booking[]
+  classSchedules ClassSchedule[]
 }
 
 model StudentInterest {
@@ -152,6 +155,7 @@ model TutorProfile {
   currency       String     @default("NGN")
   kycStatus      KycStatus  @default(NOT_STARTED)
   certificateUrl String?
+  websiteUrl     String?
   kycNote        String?
   user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   skills         TutorSkill[]
@@ -200,6 +204,20 @@ model Subscription {
   booking    Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
+model ClassSchedule {
+  id          String   @id @default(cuid())
+  tutorId     String
+  subjectId   String
+  startsAt    DateTime
+  endsAt      DateTime
+  meetingLink String
+  createdAt   DateTime @default(now())
+  tutor       User     @relation("TutorClassSchedules", fields: [tutorId], references: [id], onDelete: Cascade)
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([tutorId, subjectId, startsAt])
+}
+
 model Wallet {
   id           String              @id @default(cuid())
   userId       String              @unique
@@ -235,6 +253,18 @@ model Payout {
   tutor       User         @relation(fields: [tutorId], references: [id])
 
   @@index([tutorId, status])
+}
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  bankName      String
+  bankCode      String?
+  accountName   String
+  accountNumber String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Assignment {

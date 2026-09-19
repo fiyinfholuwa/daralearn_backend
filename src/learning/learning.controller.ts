@@ -15,6 +15,7 @@ import type { AuthenticatedRequest } from '../auth/auth.guards.js';
 import {
   CreateBookingDto,
   CreateAssignmentDto,
+  CreateClassScheduleDto,
   GradeAssignmentDto,
   InterestsDto,
   KycDto,
@@ -48,6 +49,12 @@ export class LearningController {
   @Get('students/me/recommendations')
   recommendations(@Req() req: AuthenticatedRequest) {
     return this.learning.recommendations(req.user.sub);
+  }
+
+  @Roles(UserRole.TUTOR)
+  @Get('tutors/me/profile')
+  tutorProfile(@Req() req: AuthenticatedRequest) {
+    return this.learning.tutorProfile(req.user.sub);
   }
 
   @Roles(UserRole.TUTOR)
@@ -97,6 +104,24 @@ export class LearningController {
   @Get('tutors/me/assignments')
   tutorAssignments(@Req() req: AuthenticatedRequest) {
     return this.learning.tutorAssignments(req.user.sub);
+  }
+
+  @Roles(UserRole.TUTOR)
+  @Post('tutors/me/schedules')
+  createClassSchedule(@Req() req: AuthenticatedRequest, @Body() dto: CreateClassScheduleDto) {
+    return this.learning.createClassSchedule(req.user.sub, dto);
+  }
+
+  @Roles(UserRole.TUTOR)
+  @Get('tutors/me/schedules')
+  tutorSchedules(@Req() req: AuthenticatedRequest) {
+    return this.learning.tutorSchedules(req.user.sub);
+  }
+
+  @Roles(UserRole.STUDENT)
+  @Get('students/me/schedules')
+  studentSchedules(@Req() req: AuthenticatedRequest) {
+    return this.learning.studentSchedules(req.user.sub);
   }
 
   @Roles(UserRole.STUDENT)
