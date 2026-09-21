@@ -10,12 +10,13 @@ export class MailService {
     const host = process.env.MAIL_HOST ?? process.env.SMTP_HOST;
     const port = Number(process.env.MAIL_PORT ?? process.env.SMTP_PORT ?? 587);
     const scheme = process.env.MAIL_SCHEME?.toLowerCase();
+    const secure = scheme ? scheme === 'smtps' : port === 465;
 
     return nodemailer.createTransport({
       host,
       port,
-      secure: scheme === 'smtps' || port === 465,
-      requireTLS: port === 587,
+      secure,
+      requireTLS: !secure && (scheme === 'smtp' || port === 587),
       auth: (process.env.MAIL_USERNAME ?? process.env.SMTP_USER)
         ? {
             user: process.env.MAIL_USERNAME ?? process.env.SMTP_USER,
@@ -35,6 +36,9 @@ export class MailService {
   async sendOtp(email: string, code: string) {
     const host = process.env.MAIL_HOST ?? process.env.SMTP_HOST;
     if (!host) {
+      if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+        throw new Error('Email delivery is not configured. Set MAIL_HOST, MAIL_PORT, MAIL_USERNAME, and MAIL_PASSWORD.');
+      }
       this.logger.warn(`Development OTP for ${email}: ${code}`);
       return;
     }
@@ -53,6 +57,9 @@ export class MailService {
     const url = `${process.env.APP_URL ?? 'http://localhost:3000'}/auth/reset-password?token=${token}`;
     const host = process.env.MAIL_HOST ?? process.env.SMTP_HOST;
     if (!host) {
+      if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+        throw new Error('Email delivery is not configured. Set MAIL_HOST, MAIL_PORT, MAIL_USERNAME, and MAIL_PASSWORD.');
+      }
       this.logger.warn(`Development password reset link for ${email}: ${url}`);
       return;
     }
