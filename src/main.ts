@@ -67,6 +67,10 @@ async function bootstrap() {
         color: var(--daralearn-muted);
       }
 
+      .swagger-ui section.models {
+        display: none;
+      }
+
       .swagger-ui .opblock {
         border-radius: 12px;
         box-shadow: 0 4px 18px rgba(23, 18, 37, 0.06);
@@ -83,6 +87,7 @@ async function bootstrap() {
       }
     `,
     swaggerOptions: {
+      defaultModelsExpandDepth: -1,
       persistAuthorization: true,
     },
   });
