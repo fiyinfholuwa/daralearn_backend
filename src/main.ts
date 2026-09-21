@@ -93,5 +93,27 @@ async function bootstrap() {
   });
 
   await app.listen(process.env.PORT ?? 3001);
+
+  // Render Free services sleep after 15 minutes without inbound traffic.
+  // Render sets RENDER_EXTERNAL_URL automatically, so this requires no URL
+  // configuration after deployment. Set KEEP_ALIVE=false to disable it.
+  if (process.env.RENDER_EXTERNAL_URL && process.env.KEEP_ALIVE !== 'false') {
+    const keepAliveUrl = `${process.env.RENDER_EXTERNAL_URL}/health`;
+    const keepAlive = async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      try {
+        await fetch(keepAliveUrl, { signal: controller.signal });
+      } catch (error) {
+        console.warn('Keep-alive request failed:', error instanceof Error ? error.message : error);
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    const keepAliveTimer = setInterval(keepAlive, 10 * 60 * 1000);
+    keepAliveTimer.unref();
+  }
 }
 await bootstrap();
