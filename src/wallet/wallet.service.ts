@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -35,16 +36,33 @@ export class WalletService {
         message:
           'Paystack is not configured; use a test key to initialize checkout.',
       };
-    const response = await axios.post(
-      'https://api.paystack.co/transaction/initialize',
-      {
-        email: user.email,
-        amount: Math.round(dto.amount * 100),
-        reference,
-        callback_url: process.env.PAYSTACK_CALLBACK_URL,
-      },
-      { headers: { Authorization: `Bearer ${secret}` } },
-    );
+    let response;
+    try {
+      response = await axios.post(
+        'https://api.paystack.co/transaction/initialize',
+        {
+          email: user.email,
+          amount: Math.round(dto.amount * 100),
+          reference,
+          callback_url: process.env.PAYSTACK_CALLBACK_URL,
+        },
+        {
+          headers: { Authorization: `Bearer ${secret}` },
+          timeout: 15_000,
+        },
+      );
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message ?? error.message
+        : 'Unable to contact Paystack';
+      throw new BadGatewayException(`Paystack checkout failed: ${message}`);
+    }
+
+    if (!response.data?.status || !response.data?.data?.authorization_url) {
+      throw new BadGatewayException(
+        response.data?.message ?? 'Paystack returned an invalid checkout response',
+      );
+    }
     return {
       reference,
       transactionId: transaction.id,
